@@ -1,0 +1,202 @@
+import * as Q from 'q';
+import { isDate } from "chronoshift";
+import { hasOwnProperty } from "../helper/utils";
+import { Expression } from "../expressions/baseExpression";
+import { Dataset } from "./dataset";
+import { Set } from "./set";
+import { TimeRange } from "./timeRange";
+import { StringRange } from "./stringRange";
+import { NumberRange } from "./numberRange";
+import { External } from "../external/baseExternal";
+export function getValueType(value) {
+    var typeofValue = typeof value;
+    if (typeofValue === 'object') {
+        if (value === null) {
+            return 'NULL';
+        }
+        else if (isDate(value)) {
+            return 'TIME';
+        }
+        else if (hasOwnProperty(value, 'start') && hasOwnProperty(value, 'end')) {
+            if (isDate(value.start) || isDate(value.end))
+                return 'TIME_RANGE';
+            if (typeof value.start === 'number' || typeof value.end === 'number')
+                return 'NUMBER_RANGE';
+            if (typeof value.start === 'string' || typeof value.end === 'string')
+                return 'STRING_RANGE';
+            throw new Error("unrecognizable range");
+        }
+        else {
+            var ctrType = value.constructor.type;
+            if (!ctrType) {
+                if (Expression.isExpression(value)) {
+                    throw new Error("expression used as datum value " + value);
+                }
+                else {
+                    throw new Error("can not have an object without a type: " + JSON.stringify(value));
+                }
+            }
+            if (ctrType === 'SET')
+                ctrType += '/' + value.setType;
+            return ctrType;
+        }
+    }
+    else {
+        if (typeofValue !== 'boolean' && typeofValue !== 'number' && typeofValue !== 'string') {
+            throw new TypeError('unsupported JS type ' + typeofValue);
+        }
+        return typeofValue.toUpperCase();
+    }
+}
+export function getFullType(value) {
+    var myType = getValueType(value);
+    return myType === 'DATASET' ? value.getFullType() : { type: myType };
+}
+export function getFullTypeFromDatum(datum) {
+    var datasetType = {};
+    for (var k in datum) {
+        if (!hasOwnProperty(datum, k))
+            continue;
+        datasetType[k] = getFullType(datum[k]);
+    }
+    return {
+        type: 'DATASET',
+        datasetType: datasetType
+    };
+}
+export function valueFromJS(v, typeOverride) {
+    if (typeOverride === void 0) { typeOverride = null; }
+    if (v == null) {
+        return null;
+    }
+    else if (Array.isArray(v)) {
+        if (v.length && typeof v[0] !== 'object') {
+            return Set.fromJS(v);
+        }
+        else {
+            return Dataset.fromJS(v);
+        }
+    }
+    else if (typeof v === 'object') {
+        switch (typeOverride || v.type) {
+            case 'NUMBER':
+                var n = Number(v.value);
+                if (isNaN(n))
+                    throw new Error("bad number value '" + v.value + "'");
+                return n;
+            case 'NUMBER_RANGE':
+                return NumberRange.fromJS(v);
+            case 'STRING_RANGE':
+                return StringRange.fromJS(v);
+            case 'TIME':
+                return typeOverride ? v : new Date(v.value);
+            case 'TIME_RANGE':
+                return TimeRange.fromJS(v);
+            case 'SET':
+                return Set.fromJS(v);
+            default:
+                if (v.toISOString) {
+                    return v;
+                }
+                else {
+                    throw new Error('can not have an object without a `type` as a datum value');
+                }
+        }
+    }
+    else if (typeof v === 'string' && typeOverride === 'TIME') {
+        return new Date(v);
+    }
+    return v;
+}
+export function valueToJS(v) {
+    if (v == null) {
+        return null;
+    }
+    else {
+        var typeofV = typeof v;
+        if (typeofV === 'object') {
+            if (v.toISOString) {
+                return v;
+            }
+            else {
+                return v.toJS();
+            }
+        }
+        else if (typeofV === 'number' && !isFinite(v)) {
+            return String(v);
+        }
+    }
+    return v;
+}
+export function valueToJSInlineType(v) {
+    if (v == null) {
+        return null;
+    }
+    else {
+        var typeofV = typeof v;
+        if (typeofV === 'object') {
+            if (v.toISOString) {
+                return { type: 'TIME', value: v };
+            }
+            else {
+                var js = v.toJS();
+                if (!Array.isArray(js)) {
+                    js.type = v.constructor.type;
+                }
+                return js;
+            }
+        }
+        else if (typeofV === 'number' && !isFinite(v)) {
+            return { type: 'NUMBER', value: String(v) };
+        }
+    }
+    return v;
+}
+export function datumHasExternal(datum) {
+    for (var name in datum) {
+        var value = datum[name];
+        if (value instanceof External)
+            return true;
+        if (value instanceof Dataset && value.hasExternal())
+            return true;
+    }
+    return false;
+}
+export function introspectDatum(datum) {
+    var promises = [];
+    var newDatum = Object.create(null);
+    Object.keys(datum)
+        .forEach(function (name) {
+        var v = datum[name];
+        if (v instanceof External && v.needsIntrospect()) {
+            promises.push(v.introspect().then(function (introspectedExternal) {
+                newDatum[name] = introspectedExternal;
+            }));
+        }
+        else {
+            newDatum[name] = v;
+        }
+    });
+    return Q.all(promises).then(function () { return newDatum; });
+}
+export function isSetType(type) {
+    return type && type.indexOf('SET/') === 0;
+}
+export function wrapSetType(type) {
+    return isSetType(type) ? type : ('SET/' + type);
+}
+export function unwrapSetType(type) {
+    if (!type)
+        return null;
+    return isSetType(type) ? type.substr(4) : type;
+}
+export function getAllSetTypes() {
+    return [
+        'SET/STRING',
+        'SET/STRING_RANGE',
+        'SET/NUMBER',
+        'SET/NUMBER_RANGE',
+        'SET/TIME',
+        'SET/TIME_RANGE'
+    ];
+}

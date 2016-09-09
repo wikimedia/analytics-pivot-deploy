@@ -1,0 +1,32 @@
+export declare type PlywoodRange = Range<number | Date | string>;
+export declare abstract class Range<T> {
+    static DEFAULT_BOUNDS: string;
+    static isRange(candidate: any): candidate is PlywoodRange;
+    static classMap: Lookup<typeof Range>;
+    static register(ctr: typeof Range): void;
+    static fromJS(parameters: any): PlywoodRange;
+    start: T;
+    end: T;
+    bounds: string;
+    constructor(start: T, end: T, bounds: string);
+    protected _zeroEndpoint(): T;
+    protected _endpointEqual(a: T, b: T): boolean;
+    protected _endpointToString(a: T): string;
+    protected _equalsHelper(other: Range<T>): boolean;
+    abstract equals(other: Range<T>): boolean;
+    toString(): string;
+    compare(other: Range<T>): number;
+    openStart(): boolean;
+    openEnd(): boolean;
+    empty(): boolean;
+    degenerate(): boolean;
+    contains(val: T): boolean;
+    intersects(other: Range<T>): boolean;
+    adjacent(other: Range<T>): boolean;
+    mergeable(other: Range<T>): boolean;
+    union(other: Range<T>): Range<T>;
+    extent(): Range<T>;
+    extend(other: Range<T>): Range<T>;
+    intersect(other: Range<T>): Range<T>;
+    abstract midpoint(): T;
+}
